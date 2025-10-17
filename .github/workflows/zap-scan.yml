@@ -35,9 +35,8 @@ jobs:
     - name: Run OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.14.0
       with:
-        # Importante: quando o ZAP roda em Docker, 127.0.0.1 se refere ao container.
-        # Use host.docker.internal para acessar o servidor local no runner.
-        target: 'http://host.docker.internal:8080'
+        # No runner Linux, a action usa `--network=host`, então 127.0.0.1 aponta para o host.
+        target: 'http://127.0.0.1:8080'
         cmd_options: '-J /zap/wrk/zap-reports/report.json -r /zap/wrk/zap-reports/report.html'
         fail_action: false
       
