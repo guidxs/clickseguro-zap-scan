@@ -15,11 +15,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Start local web server
+    - name: Prepare report directory
       run: |
         mkdir -p zap-reports
+        chmod 777 zap-reports
+      shell: bash
+
+    - name: Start local web server
+      run: |
         nohup python3 server.py > server.log 2>&1 &
-        # Espera até o servidor subir (máx 20 tentativas)
+        # Espera o servidor subir (máx 20 tentativas)
         for i in {1..20}; do
           if curl -sSf http://127.0.0.1:8080/ >/dev/null; then
             echo "Servidor disponível"
@@ -31,11 +36,8 @@ jobs:
         head -n 50 server.log
       shell: bash
 
-    - name: Run OWASP ZAP Baseline Scan (docker)
+    - name: Run OWASP ZAP Baseline Scan
       run: |
-        mkdir -p zap-reports
-        chmod 777 zap-reports           # garante que o container possa escrever
-        docker pull ghcr.io/zaproxy/zaproxy:stable
         docker run --rm \
           -v "$(pwd)":/zap/wrk/:rw \
           --network=host \
@@ -59,13 +61,12 @@ jobs:
         fi
 
         TOTAL=$(jq '[.site[].alerts[]?] | length' $REPORT)
-        echo "Quantidade total de alertas: $TOTAL"
-
         LOW=$(jq '[.site[].alerts[]? | select(.risk=="Low")] | length' $REPORT)
         MEDIUM=$(jq '[.site[].alerts[]? | select(.risk=="Medium")] | length' $REPORT)
         HIGH=$(jq '[.site[].alerts[]? | select(.risk=="High")] | length' $REPORT)
         CRITICAL=$(jq '[.site[].alerts[]? | select(.risk=="Critical")] | length' $REPORT)
 
+        echo "Quantidade total de alertas: $TOTAL"
         echo "Alertas por severidade - Low: $LOW, Medium: $MEDIUM, High: $HIGH, Critical: $CRITICAL"
 
         echo "Tipos de vulnerabilidades mais comuns:"
@@ -75,8 +76,8 @@ jobs:
           echo "::error::ZAP encontrou $HIGH High e $CRITICAL Critical alerts. Pipeline falhando."
           exit 1
         fi
-
         echo "Nenhum alerta High/Critical encontrado."
+      shell: bash
 
     - name: Upload ZAP reports and server log
       uses: actions/upload-artifact@v4
