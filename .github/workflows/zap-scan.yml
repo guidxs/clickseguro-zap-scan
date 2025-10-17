@@ -43,20 +43,20 @@ jobs:
       uses: zaproxy/action-baseline@v0.14.0
       with:
         target: 'http://127.0.0.1:8080'
-        cmd_options: '-J zap-reports/report.json -r zap-reports/report.html'
+        cmd_options: '-J report.json -r report.html'
         fail_action: false
     - name: List ZAP reports
-      run: ls -l zap-reports
+      run: ls -l .
       
 
     - name: Fail if High/Critical alerts exist
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y jq
-        REPORT=zap-reports/report.json
+        REPORT=report.json
         if [ ! -f "$REPORT" ]; then
           echo "::error::ZAP report not found at $REPORT"
-          ls -l zap-reports || true
+          ls -l . || true
           exit 1
         fi
 
@@ -88,8 +88,8 @@ jobs:
       with:
         name: zap-reports
         path: |
-          zap-reports/report.html
-          zap-reports/report.json
+          report.html
+          report.json
           server.log
 
     - name: Stop local server
