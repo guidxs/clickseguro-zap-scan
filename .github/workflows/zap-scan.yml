@@ -1,0 +1,51 @@
+name: OWASP ZAP Baseline Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  zap-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Start local web server
+      run: |
+        python3 server.py > server.log 2>&1 &
+        sleep 5
+
+    - name: Pull OWASP ZAP Docker image
+      run: docker pull owasp/zap2docker-stable:latest
+
+    - name: Run ZAP Baseline Scan
+      run: |
+        mkdir -p zap-reports
+        docker run --rm \
+          -v ${GITHUB_WORKSPACE}/zap-reports:/zap/wrk \
+          --network host \
+          owasp/zap2docker-stable zap-baseline.py \
+          -t http://127.0.0.1:8080 \
+          -r zap-reports/report.html \
+          -J zap-reports/report.json || true
+
+    - name: Fail if High/Critical alerts exist
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y jq
+        HIGH_COUNT=$(jq '[.site[].alerts[]? | select(.risk == "High" or .risk == "Critical")] | length' zap-reports/report.json)
+        echo "High/Critical alerts: $HIGH_COUNT"
+        if [ "$HIGH_COUNT" -gt 0 ]; then
+          echo "::error::ZAP found $HIGH_COUNT High/Critical alerts"
+          exit 1
+        fi
+
+    - name: Upload ZAP HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: zap-report
+        path: zap-reports/report.html
