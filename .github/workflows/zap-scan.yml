@@ -17,17 +17,27 @@ jobs:
 
     - name: Start local web server
       run: |
-        python3 server.py > server.log 2>&1 &
-        sleep 15
+        mkdir -p zap-reports
+        nohup python3 server.py > server.log 2>&1 &
+        # Espera até o servidor subir (max 20 tentativas)
+        for i in {1..20}; do
+          if curl -sSf http://127.0.0.1:8080/ >/dev/null; then
+            echo "Servidor disponível"
+            break
+          fi
+          echo "Aguardando servidor... tentativa $i"
+          sleep 1
+        done
+        head -n 50 server.log
+      shell: bash
 
     - name: Run OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.14.0
       with:
         target: 'http://127.0.0.1:8080'
-        rules_file_name: ''
-        fail_on_error: 'false'
-        format: 'html,json'
-        output_file: 'zap-reports/report.html'
+        cmd_options: '-r zap-reports/report.html -J zap-reports/report.json -w zap-reports/report.md'
+        # token: ${{ secrets.ZAP_TOKEN }}  # Se quiser criar issues
+        # allow_issue_writing: true
 
     - name: Fail if High/Critical alerts exist
       run: |
@@ -38,23 +48,40 @@ jobs:
           echo "::error::ZAP report not found at $REPORT"
           exit 1
         fi
-        HIGH_COUNT=$(jq '[.site[].alerts[]? | select(.risk=="High" or .risk=="Critical")] | length' $REPORT)
-        echo "High/Critical alerts: $HIGH_COUNT"
-        if [ "$HIGH_COUNT" -gt 0 ]; then
-          echo "::error::ZAP found $HIGH_COUNT High/Critical alerts. Failing the job."
-          jq '.site[].alerts[]? | select(.risk=="High" or .risk=="Critical") | {name, risk, uri, param, evidence, cweid}' $REPORT
+
+        TOTAL=$(jq '[.site[].alerts[]?] | length' $REPORT)
+        echo "Quantidade total de alertas: $TOTAL"
+
+        LOW=$(jq '[.site[].alerts[]? | select(.risk=="Low")] | length' $REPORT)
+        MEDIUM=$(jq '[.site[].alerts[]? | select(.risk=="Medium")] | length' $REPORT)
+        HIGH=$(jq '[.site[].alerts[]? | select(.risk=="High")] | length' $REPORT)
+        CRITICAL=$(jq '[.site[].alerts[]? | select(.risk=="Critical")] | length' $REPORT)
+
+        echo "Alertas por severidade - Low: $LOW, Medium: $MEDIUM, High: $HIGH, Critical: $CRITICAL"
+
+        # Listar tipos mais comuns de vulnerabilidades
+        echo "Tipos de vulnerabilidades mais comuns:"
+        jq -r '[.site[].alerts[]? | .name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count)[] | "\(.name): \(.count)"' $REPORT
+
+        if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+          echo "::error::ZAP encontrou $HIGH High e $CRITICAL Critical alerts. Pipeline falhando."
           exit 1
         fi
-        echo "No High/Critical alerts found."
 
-    - name: Upload ZAP HTML report
+        echo "Nenhum alerta High/Critical encontrado."
+
+    - name: Upload ZAP reports and server log
       uses: actions/upload-artifact@v4
       with:
-        name: zap-report
-        path: zap-reports/report.html
+        name: zap-reports
+        path: |
+          zap-reports/report.html
+          zap-reports/report.json
+          zap-reports/report.md
+          server.log
 
-    - name: Upload ZAP JSON report
-      uses: actions/upload-artifact@v4
-      with:
-        name: zap-json-report
-        path: zap-reports/report.json
+    - name: Stop local server
+      if: always()
+      run: |
+        pkill -f "python3 server.py" || true
+      shell: bash
