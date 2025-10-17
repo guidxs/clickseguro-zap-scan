@@ -42,10 +42,12 @@ jobs:
     - name: Run OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.14.0
       with:
-        # No runner Linux, a action usa `--network=host`, então 127.0.0.1 aponta para o host.
         target: 'http://127.0.0.1:8080'
-        cmd_options: '-J /zap/wrk/zap-reports/report.json -r /zap/wrk/zap-reports/report.html'
+        report_format: 'html,json'
+        output_folder: 'zap-reports'
         fail_action: false
+    - name: List ZAP reports
+      run: ls -l zap-reports
       
 
     - name: Fail if High/Critical alerts exist
@@ -55,6 +57,7 @@ jobs:
         REPORT=zap-reports/report.json
         if [ ! -f "$REPORT" ]; then
           echo "::error::ZAP report not found at $REPORT"
+          ls -l zap-reports || true
           exit 1
         fi
 
