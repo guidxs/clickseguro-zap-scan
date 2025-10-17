@@ -18,7 +18,7 @@ jobs:
     - name: Start local web server
       run: |
         python3 server.py > server.log 2>&1 &
-        sleep 5
+        sleep 15
 
     - name: Run OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.14.0
