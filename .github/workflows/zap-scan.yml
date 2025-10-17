@@ -19,7 +19,7 @@ jobs:
       run: |
         mkdir -p zap-reports
         nohup python3 server.py > server.log 2>&1 &
-        # Espera até o servidor subir (max 20 tentativas)
+        # Espera até o servidor subir (máx 20 tentativas)
         for i in {1..20}; do
           if curl -sSf http://127.0.0.1:8080/ >/dev/null; then
             echo "Servidor disponível"
@@ -34,6 +34,7 @@ jobs:
     - name: Run OWASP ZAP Baseline Scan (docker)
       run: |
         mkdir -p zap-reports
+        chmod 777 zap-reports           # garante que o container possa escrever
         docker pull ghcr.io/zaproxy/zaproxy:stable
         docker run --rm \
           -v "$(pwd)":/zap/wrk/:rw \
