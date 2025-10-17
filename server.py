@@ -35,6 +35,30 @@ veis propositalmente inseridos para gatilhar detectores de PII -->
                 </body>
                 </html>
             """)
+        elif self.path.startswith("/pii"):
+            # Página contendo dados sensíveis para acionar regras High (Cartão de crédito e chave privada)
+            self.send_response(200)
+            self.send_header("Content-type", "text/html; charset=utf-8")
+            self.end_headers()
+            body = """
+                <html>
+                <body>
+                    <h1>Dados Sensíveis (DEMO)</h1>
+                    <p>Cartao de Credito (exemplo): 4111 1111 1111 1111</p>
+                    <p>Visa (exemplo): 4539 1488 0343 6467</p>
+                    <p>Mastercard (exemplo): 5500 0000 0000 0004</p>
+                    <pre>
+-----BEGIN PRIVATE KEY-----
+MIIBVwIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAxZ0v2xW2r8m9j9dC
+fFakeKeyBlockForDemoOnlyDoNotUseInProductiony2d8mY1lq9H0Z+3J1p3b
+QIDAQABAkAdemoPrivateKeyBlockThatShouldTriggerDetectors==
+-----END PRIVATE KEY-----
+                    </pre>
+                    <p>Exemplo de chave exposta (PROPOSITAL para teste ZAP)</p>
+                </body>
+                </html>
+            """
+            self.wfile.write(body.encode("utf-8"))
         else:
             # Serve arquivos estáticos normalmente
             # Adiciona cabeçalhos CORS inseguros em todas as respostas
