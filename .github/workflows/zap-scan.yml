@@ -22,7 +22,7 @@ jobs:
         sleep 5
 
     - name: Run OWASP ZAP Baseline Scan
-      uses: zaproxy/action-baseline@v2.11.0
+      uses: zaproxy/action-baseline@v2
       with:
         target: 'http://127.0.0.1:8080'
         rules_file_name: ''
