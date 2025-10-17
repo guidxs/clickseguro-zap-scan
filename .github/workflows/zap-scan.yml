@@ -20,15 +20,22 @@ jobs:
       run: |
         mkdir -p zap-reports
         nohup python3 server.py > server.log 2>&1 &
-        # Espera até o servidor subir (max 20 tentativas)
-        for i in {1..20}; do
+        # Espera até o servidor subir (max 30 tentativas)
+        for i in {1..30}; do
           if curl -sSf http://127.0.0.1:8080/ >/dev/null; then
-            echo "Servidor disponível"
+            echo "Servidor disponível na tentativa $i"
             break
           fi
           echo "Aguardando servidor... tentativa $i"
           sleep 1
         done
+        # Checa se subiu mesmo
+        if ! curl -sSf http://127.0.0.1:8080/ >/dev/null; then
+          echo "::error::Servidor não subiu na porta 8080. Veja server.log para detalhes."
+          head -n 50 server.log
+          exit 1
+        fi
+        echo "Log inicial do servidor:"
         head -n 50 server.log
       shell: bash
 
