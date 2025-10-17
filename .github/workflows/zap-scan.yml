@@ -1,4 +1,4 @@
-name: OWASP ZAP Baseline Scan
+name: OWASP ZAP Baseline Scan (debuggable)
 
 on:
   push:
@@ -9,48 +9,94 @@ on:
 jobs:
   zap-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
-    # 1️⃣ Checkout do repositório
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2️⃣ Criar pasta para reports (necessário antes de rodar o ZAP)
     - name: Prepare reports folder
       run: mkdir -p zap-reports
 
-    # 3️⃣ Start local web server
     - name: Start local web server
       run: |
         nohup python3 server.py > server.log 2>&1 &
-        # Espera até o servidor subir (max 20 tentativas)
-        for i in {1..20}; do
-          if curl -sSf http://127.0.0.1:8080/ >/dev/null; then
-            echo "Servidor disponível"
+        echo "PID do servidor:"
+        ps aux | grep server.py | grep -v grep || true
+
+        # Espera até o endpoint /login responder (max 40 tentativas)
+        for i in {1..40}; do
+          if curl -sSf --max-time 3 http://127.0.0.1:8080/login >/dev/null 2>&1; then
+            echo "Servidor /login disponível (tentativa $i)"
             break
           fi
           echo "Aguardando servidor... tentativa $i"
           sleep 1
         done
-        head -n 50 server.log
+
+        echo "Últimas 200 linhas do server.log (caso haja erro no app):"
+        tail -n 200 server.log || true
       shell: bash
 
-    # 4️⃣ Rodar ZAP Baseline Scan (gera HTML, JSON e Markdown)
-    - name: Run OWASP ZAP Baseline Scan
+    - name: Pre-scan check (list repo root and zap-reports)
+      run: |
+        echo "PWD: $(pwd)"
+        echo "ls -la (repo root):"
+        ls -la || true
+        echo "ls -la zap-reports:"
+        ls -la zap-reports || true
+      shell: bash
+
+    - name: Run OWASP ZAP Baseline Scan (generate HTML+JSON+MD)
       uses: zaproxy/action-baseline@v0.14.0
       with:
         target: 'http://127.0.0.1:8080'
         cmd_options: '-r zap-reports/report.html -J zap-reports/report.json -w zap-reports/report.md'
+      # Nota: descomente token se quiser criação de issues
+      # with:
+      #   token: ${{ secrets.ZAP_TOKEN }}
+      #   allow_issue_writing: true
 
-    # 5️⃣ Falhar pipeline se houver alertas High/Critical
-    - name: Fail if High/Critical alerts exist
+    # --- debug step: listar pasta e mostrar se o report foi gerado ---
+    - name: Debug after ZAP - list zap-reports and tail server log
+      run: |
+        echo "=== Lista zap-reports ==="
+        ls -la zap-reports || true
+        echo
+        echo "=== If report.json exists, print summary (first 200 chars) ==="
+        if [ -f zap-reports/report.json ]; then
+          echo "report.json exists, size:"
+          stat -c '%s bytes' zap-reports/report.json || true
+          echo "--- head of report.json ---"
+          head -c 200 zap-reports/report.json || true
+          echo
+        else
+          echo "report.json NOT FOUND"
+        fi
+
+        echo
+        echo "=== server.log last 200 lines ==="
+        tail -n 200 server.log || true
+
+        echo
+        echo "=== docker images / containers (if any) - quick check ==="
+        docker ps -a || true
+        docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' || true
+      shell: bash
+
+    - name: Fail if High/Critical alerts exist (uses jq)
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y jq
         REPORT=zap-reports/report.json
+
         if [ ! -f "$REPORT" ]; then
           echo "::error::ZAP report not found at $REPORT"
+          # imprime conteúdo de zap-reports pra ajudar triagem
+          echo "Conteúdo da pasta zap-reports (para debug):"
+          ls -la zap-reports || true
+          echo "Saída do servidor (server.log) — últimas 200 linhas:"
+          tail -n 200 server.log || true
           exit 1
         fi
 
@@ -63,7 +109,6 @@ jobs:
         CRITICAL=$(jq '[.site[].alerts[]? | select(.risk=="Critical")] | length' $REPORT)
 
         echo "Alertas por severidade - Low: $LOW, Medium: $MEDIUM, High: $HIGH, Critical: $CRITICAL"
-
         echo "Tipos de vulnerabilidades mais comuns:"
         jq -r '[.site[].alerts[]? | .name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count)[] | "\(.name): \(.count)"' $REPORT
 
@@ -73,9 +118,10 @@ jobs:
         fi
 
         echo "Nenhum alerta High/Critical encontrado."
+      shell: bash
 
-    # 6️⃣ Upload de artifacts (HTML, JSON, Markdown e log do servidor)
     - name: Upload ZAP reports and server log
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: zap-reports
@@ -85,7 +131,6 @@ jobs:
           zap-reports/report.md
           server.log
 
-    # 7️⃣ Stop local server
     - name: Stop local server
       if: always()
       run: |
