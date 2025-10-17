@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   zap-scan:
@@ -15,16 +16,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Prepare report directory
-      run: |
-        mkdir -p zap-reports
-        chmod 777 zap-reports
-      shell: bash
-
     - name: Start local web server
       run: |
+        mkdir -p zap-reports
         nohup python3 server.py > server.log 2>&1 &
-        # Espera o servidor subir (máx 20 tentativas)
+        # Espera até o servidor subir (max 20 tentativas)
         for i in {1..20}; do
           if curl -sSf http://127.0.0.1:8080/ >/dev/null; then
             echo "Servidor disponível"
@@ -37,20 +33,16 @@ jobs:
       shell: bash
 
     - name: Run OWASP ZAP Baseline Scan
-      run: |
-        docker run --rm \
-          -v "$(pwd)":/zap/wrk/:rw \
-          --network=host \
-          -t ghcr.io/zaproxy/zaproxy:stable \
-          zap-baseline.py \
-            -t http://127.0.0.1:8080 \
-            -J zap-reports/report.json \
-            -w zap-reports/report.md \
-            -r zap-reports/report.html
-        ls -la zap-reports
-      shell: bash
+      uses: zaproxy/action-baseline@v0.14.0
+      with:
+        # Importante: quando o ZAP roda em Docker, 127.0.0.1 se refere ao container.
+        # Use host.docker.internal para acessar o servidor local no runner.
+        target: 'http://host.docker.internal:8080'
+        cmd_options: '-J /zap/wrk/zap-reports/report.json -r /zap/wrk/zap-reports/report.html'
+        fail_action: false
+      
 
-    - name: Fail if High/Critical alerts exist
+    - name: Fail if High alerts exist
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y jq
@@ -60,24 +52,26 @@ jobs:
           exit 1
         fi
 
-        TOTAL=$(jq '[.site[].alerts[]?] | length' $REPORT)
-        LOW=$(jq '[.site[].alerts[]? | select(.risk=="Low")] | length' $REPORT)
-        MEDIUM=$(jq '[.site[].alerts[]? | select(.risk=="Medium")] | length' $REPORT)
-        HIGH=$(jq '[.site[].alerts[]? | select(.risk=="High")] | length' $REPORT)
-        CRITICAL=$(jq '[.site[].alerts[]? | select(.risk=="Critical")] | length' $REPORT)
+        # Função jq para extrair severidade como texto (High/Medium/Low/Informational)
+        JQ_FUNC='def risk: if has("risk") then .risk elif has("riskdesc") then (.riskdesc | split(" ")[0]) else "Unknown" end;'
+        TOTAL=$(jq '[.site[].alerts[]?] | length' "$REPORT")
+        LOW=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Low\")) | length" "$REPORT")
+        MEDIUM=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Medium\")) | length" "$REPORT")
+        HIGH=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"High\")) | length" "$REPORT")
+        INFO=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Informational\")) | length" "$REPORT")
 
         echo "Quantidade total de alertas: $TOTAL"
-        echo "Alertas por severidade - Low: $LOW, Medium: $MEDIUM, High: $HIGH, Critical: $CRITICAL"
+        echo "Alertas por severidade - Informational: $INFO, Low: $LOW, Medium: $MEDIUM, High: $HIGH"
 
         echo "Tipos de vulnerabilidades mais comuns:"
-        jq -r '[.site[].alerts[]? | .name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count)[] | "\(.name): \(.count)"' $REPORT
+        jq -r '[.site[].alerts[]? | .name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count)[] | "\(.name): \(.count)"' "$REPORT"
 
-        if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
-          echo "::error::ZAP encontrou $HIGH High e $CRITICAL Critical alerts. Pipeline falhando."
+        if [ "$HIGH" -gt 0 ]; then
+          echo "::error::ZAP encontrou $HIGH alertas High. Pipeline falhando."
           exit 1
         fi
-        echo "Nenhum alerta High/Critical encontrado."
-      shell: bash
+
+        echo "Nenhum alerta High encontrado."
 
     - name: Upload ZAP reports and server log
       uses: actions/upload-artifact@v4
@@ -86,7 +80,6 @@ jobs:
         path: |
           zap-reports/report.html
           zap-reports/report.json
-          zap-reports/report.md
           server.log
 
     - name: Stop local server
