@@ -12,12 +12,17 @@ jobs:
     timeout-minutes: 30
 
     steps:
+    # 1️⃣ Checkout do repositório
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # 2️⃣ Criar pasta para reports (necessário antes de rodar o ZAP)
+    - name: Prepare reports folder
+      run: mkdir -p zap-reports
+
+    # 3️⃣ Start local web server
     - name: Start local web server
       run: |
-        mkdir -p zap-reports
         nohup python3 server.py > server.log 2>&1 &
         # Espera até o servidor subir (max 20 tentativas)
         for i in {1..20}; do
@@ -31,6 +36,7 @@ jobs:
         head -n 50 server.log
       shell: bash
 
+    # 4️⃣ Rodar ZAP Baseline Scan
     - name: Run OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.14.0
       with:
@@ -39,6 +45,7 @@ jobs:
         # token: ${{ secrets.ZAP_TOKEN }}  # Se quiser criar issues
         # allow_issue_writing: true
 
+    # 5️⃣ Falhar pipeline se houver alertas High/Critical
     - name: Fail if High/Critical alerts exist
       run: |
         sudo apt-get update -qq
@@ -59,7 +66,6 @@ jobs:
 
         echo "Alertas por severidade - Low: $LOW, Medium: $MEDIUM, High: $HIGH, Critical: $CRITICAL"
 
-        # Listar tipos mais comuns de vulnerabilidades
         echo "Tipos de vulnerabilidades mais comuns:"
         jq -r '[.site[].alerts[]? | .name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count)[] | "\(.name): \(.count)"' $REPORT
 
@@ -70,6 +76,7 @@ jobs:
 
         echo "Nenhum alerta High/Critical encontrado."
 
+    # 6️⃣ Upload de artifacts (HTML, JSON, Markdown e log do servidor)
     - name: Upload ZAP reports and server log
       uses: actions/upload-artifact@v4
       with:
@@ -80,6 +87,7 @@ jobs:
           zap-reports/report.md
           server.log
 
+    # 7️⃣ Stop local server
     - name: Stop local server
       if: always()
       run: |
