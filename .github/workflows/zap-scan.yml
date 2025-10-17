@@ -9,41 +9,53 @@ on:
 jobs:
   zap-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Start local web server
       run: |
         python3 server.py > server.log 2>&1 &
+        # Espera 5 segundos para o servidor subir
         sleep 5
 
-    - name: Pull OWASP ZAP Docker image
-      run: docker pull ghcr.io/zaproxy/zap2docker-stable:latest
-
-    - name: Run ZAP Baseline Scan
-      run: |
-        mkdir -p zap-reports
-        docker run --rm \
-          -v ${GITHUB_WORKSPACE}/zap-reports:/zap/wrk \
-          --network host \
-          ghcr.io/zaproxy/zap2docker-stable:latest \
-          zap-baseline.py -t http://127.0.0.1:8080 -r zap-reports/report.html -J zap-reports/report.json || true
+    - name: Run OWASP ZAP Baseline Scan
+      uses: zaproxy/action-baseline@v1
+      with:
+        target: 'http://127.0.0.1:8080'
+        rules_file_name: ''
+        fail_on_error: 'false'    # vamos controlar High/Critical manualmente
+        format: 'html,json'
+        output_file: 'zap-reports/report.html'
 
     - name: Fail if High/Critical alerts exist
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y jq
-        HIGH_COUNT=$(jq '[.site[].alerts[]? | select(.risk == "High" or .risk == "Critical")] | length' zap-reports/report.json)
-        echo "High/Critical alerts: $HIGH_COUNT"
-        if [ "$HIGH_COUNT" -gt 0 ]; then
-          echo "::error::ZAP found $HIGH_COUNT High/Critical alerts"
+        REPORT=zap-reports/report.json
+        if [ ! -f "$REPORT" ]; then
+          echo "::error::ZAP report not found at $REPORT"
           exit 1
         fi
+        HIGH_COUNT=$(jq '[.site[].alerts[]? | select(.risk=="High" or .risk=="Critical")] | length' $REPORT)
+        echo "High/Critical alerts: $HIGH_COUNT"
+        if [ "$HIGH_COUNT" -gt 0 ]; then
+          echo "::error::ZAP found $HIGH_COUNT High/Critical alerts. Failing the job."
+          jq '.site[].alerts[]? | select(.risk=="High" or .risk=="Critical") | {name, risk, uri, param, evidence, cweid}' $REPORT
+          exit 1
+        fi
+        echo "No High/Critical alerts found."
 
     - name: Upload ZAP HTML report
       uses: actions/upload-artifact@v4
       with:
         name: zap-report
         path: zap-reports/report.html
+
+    - name: Upload ZAP JSON report
+      uses: actions/upload-artifact@v4
+      with:
+        name: zap-json-report
+        path: zap-reports/report.json
