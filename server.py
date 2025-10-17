@@ -2,6 +2,15 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 import urllib.parse
 
 class Handler(SimpleHTTPRequestHandler):
+    # Adiciona cabeçalhos inseguros em TODAS as respostas (proposital para gerar High)
+    def end_headers(self):
+        # CORS totalmente aberto com credenciais: configuração perigosa (trigger de High)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        # Cookie sem HttpOnly/Secure/SameSite
+        self.send_header("Set-Cookie", "sessionid=abc123; Path=/")
+        super().end_headers()
+
     def do_GET(self):
         # Mostra formulário de login em /login
         if self.path.startswith("/login"):
@@ -18,12 +27,17 @@ class Handler(SimpleHTTPRequestHandler):
                         Senha: <input type="password" name="password"><br>
                         <input type="submit" value="Entrar">
                     </form>
+                    <!-- Dados sens
+veis propositalmente inseridos para gatilhar detectores de PII -->
+                    <!-- CC: 4111 1111 1111 1111 | SSN: 123-45-6789 -->
+                    <p><a href="/login?username=test&password=secret">Exemplo de URL com credenciais (inseguro)</a></p>
                     <p>Para testes com ZAP: tente enviar payloads no campo "usuario".</p>
                 </body>
                 </html>
             """)
         else:
             # Serve arquivos estáticos normalmente
+            # Adiciona cabeçalhos CORS inseguros em todas as respostas
             super().do_GET()
 
     def do_POST(self):
@@ -41,15 +55,18 @@ class Handler(SimpleHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
+            # Cabeçalhos inseguros propositalmente para fins de teste
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Credentials", "true")
             self.end_headers()
 
-            # ATENÇÃO: este output é intencionalmente inseguro para fins de teste
+            # ATENÇÃO: Intencionalmente inseguro para fins de teste
             resp = f"""
                 <html>
                 <body>
                     <h1>Bem-vindo, {username}!</h1>
                     <p>Sua senha é: {password}</p>
-                    <p>(Esta p\xc3\xa1gina intencionalmente reflete dados sem valida\xc3\xa7\xc3\xa3o.)</p>
+                    <p>(Esta pagina intencionalmente reflete dados sem validacao.)</p>
                 </body>
                 </html>
             """
