@@ -28,9 +28,17 @@ O workflow em `.github/workflows/zap-scan.yml` faz o seguinte:
 - Sobe o servidor local em background na porta 8080.
 - Executa o ZAP Baseline usando a action `zaproxy/action-baseline` apontando para `http://host.docker.internal:8080` (necessário para o container do ZAP acessar o serviço do runner).
 - Publica os relatórios (HTML e JSON) como artefatos.
-- Falha o job se forem encontrados alertas de severidade High.
+- Falha o job se forem encontrados alertas de severidade High ou Critical.
 
 Os relatórios são salvos em `zap-reports/report.html` e `zap-reports/report.json` dentro do workspace do runner e enviados como artefatos.
+
+### Como o trabalho pedido se conecta ao projeto
+
+1. ZAP no GitHub Actions escaneando app local e gerando HTML: implementado em `.github/workflows/zap-scan.yml` (etapas de subir servidor e rodar action com `cmd_options` gerando HTML/JSON).
+2. Pipeline falha em High/Critical: etapa "Fail if High/Critical alerts exist" falha o job quando encontra severidades altas.
+3. Análise do relatório: a mesma etapa imprime no log a quantidade total de alertas, contagem por severidade e os tipos de vulnerabilidades mais comuns (por nome).
+4. Vulnerabilidade proposital: `server.py` contém uma página de login que reflete entradas do usuário sem sanitização (XSS refletido), para ser detectada pelo ZAP.
+5. Relatório como artefato: etapa "Upload ZAP reports and server log" envia `report.html`, `report.json` e `server.log` para download após o build.
 
 ## Ajustes úteis
 

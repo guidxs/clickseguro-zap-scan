@@ -42,7 +42,7 @@ jobs:
         fail_action: false
       
 
-    - name: Fail if High alerts exist
+    - name: Fail if High/Critical alerts exist
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y jq
@@ -53,25 +53,27 @@ jobs:
         fi
 
         # Função jq para extrair severidade como texto (High/Medium/Low/Informational)
+        # Inclui suporte opcional a "Critical" caso apareça em alguma variante de relatório
         JQ_FUNC='def risk: if has("risk") then .risk elif has("riskdesc") then (.riskdesc | split(" ")[0]) else "Unknown" end;'
         TOTAL=$(jq '[.site[].alerts[]?] | length' "$REPORT")
         LOW=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Low\")) | length" "$REPORT")
         MEDIUM=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Medium\")) | length" "$REPORT")
         HIGH=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"High\")) | length" "$REPORT")
+        CRITICAL=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Critical\")) | length" "$REPORT")
         INFO=$(jq "$JQ_FUNC [.site[].alerts[]? | risk] | map(select(.==\"Informational\")) | length" "$REPORT")
 
         echo "Quantidade total de alertas: $TOTAL"
-        echo "Alertas por severidade - Informational: $INFO, Low: $LOW, Medium: $MEDIUM, High: $HIGH"
+        echo "Alertas por severidade - Informational: $INFO, Low: $LOW, Medium: $MEDIUM, High: $HIGH, Critical: $CRITICAL"
 
         echo "Tipos de vulnerabilidades mais comuns:"
         jq -r '[.site[].alerts[]? | .name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count)[] | "\(.name): \(.count)"' "$REPORT"
 
-        if [ "$HIGH" -gt 0 ]; then
-          echo "::error::ZAP encontrou $HIGH alertas High. Pipeline falhando."
+        if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+          echo "::error::ZAP encontrou $HIGH High e $CRITICAL Critical. Pipeline falhando."
           exit 1
         fi
 
-        echo "Nenhum alerta High encontrado."
+        echo "Nenhum alerta High/Critical encontrado."
 
     - name: Upload ZAP reports and server log
       uses: actions/upload-artifact@v4
